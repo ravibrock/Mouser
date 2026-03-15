@@ -27,6 +27,168 @@ try:
 except ImportError:
     HIDAPI_OK = False
 
+_MAC_NATIVE_OK = False
+if sys.platform == "darwin":
+    try:
+        import ctypes
+        from ctypes import POINTER, byref, c_char_p, c_int, c_long, c_uint8, c_void_p
+
+        _cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        _iokit = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
+
+        _cf.CFNumberCreate.argtypes = [c_void_p, c_int, c_void_p]
+        _cf.CFNumberCreate.restype = c_void_p
+        _cf.CFStringCreateWithCString.argtypes = [c_void_p, c_char_p, c_int]
+        _cf.CFStringCreateWithCString.restype = c_void_p
+        _cf.CFDictionaryCreate.argtypes = [
+            c_void_p, POINTER(c_void_p), POINTER(c_void_p), c_long, c_void_p, c_void_p,
+        ]
+        _cf.CFDictionaryCreate.restype = c_void_p
+        _cf.CFSetGetCount.argtypes = [c_void_p]
+        _cf.CFSetGetCount.restype = c_long
+        _cf.CFSetGetValues.argtypes = [c_void_p, POINTER(c_void_p)]
+        _cf.CFRelease.argtypes = [c_void_p]
+        _cf.CFRetain.argtypes = [c_void_p]
+        _cf.CFRetain.restype = c_void_p
+
+        _iokit.IOHIDManagerCreate.argtypes = [c_void_p, c_int]
+        _iokit.IOHIDManagerCreate.restype = c_void_p
+        _iokit.IOHIDManagerSetDeviceMatching.argtypes = [c_void_p, c_void_p]
+        _iokit.IOHIDManagerOpen.argtypes = [c_void_p, c_int]
+        _iokit.IOHIDManagerOpen.restype = c_int
+        _iokit.IOHIDManagerCopyDevices.argtypes = [c_void_p]
+        _iokit.IOHIDManagerCopyDevices.restype = c_void_p
+
+        _iokit.IOHIDDeviceOpen.argtypes = [c_void_p, c_int]
+        _iokit.IOHIDDeviceOpen.restype = c_int
+        _iokit.IOHIDDeviceClose.argtypes = [c_void_p, c_int]
+        _iokit.IOHIDDeviceClose.restype = c_int
+        _iokit.IOHIDDeviceSetReport.argtypes = [c_void_p, c_int, c_long, POINTER(c_uint8), c_long]
+        _iokit.IOHIDDeviceSetReport.restype = c_int
+        _iokit.IOHIDDeviceGetReport.argtypes = [c_void_p, c_int, c_long, POINTER(c_uint8), POINTER(c_long)]
+        _iokit.IOHIDDeviceGetReport.restype = c_int
+
+        _K_CF_NUMBER_SINT32 = 3
+        _K_CF_STRING_ENCODING_UTF8 = 0x08000100
+        _K_IOHID_REPORT_TYPE_INPUT = 0
+        _K_IOHID_REPORT_TYPE_OUTPUT = 1
+
+        _MAC_NATIVE_OK = True
+    except Exception as exc:
+        print(f"[HidGesture] macOS native HID unavailable: {exc}")
+
+
+if _MAC_NATIVE_OK:
+    class _MacNativeHidDevice:
+        """Minimal IOHIDDevice wrapper for Logitech BLE HID++ on macOS."""
+
+        def __init__(self, product_id):
+            self._product_id = int(product_id)
+            self._manager = None
+            self._matching = None
+            self._device = None
+
+        @staticmethod
+        def _cfstring(text):
+            return _cf.CFStringCreateWithCString(
+                None, text.encode("utf-8"), _K_CF_STRING_ENCODING_UTF8
+            )
+
+        @staticmethod
+        def _cfnumber(value):
+            num = c_int(int(value))
+            return _cf.CFNumberCreate(None, _K_CF_NUMBER_SINT32, byref(num))
+
+        def open(self):
+            keys = [
+                self._cfstring("VendorID"),
+                self._cfstring("ProductID"),
+            ]
+            values = [
+                self._cfnumber(LOGI_VID),
+                self._cfnumber(self._product_id),
+            ]
+            key_array = (c_void_p * len(keys))(*keys)
+            value_array = (c_void_p * len(values))(*values)
+            self._matching = _cf.CFDictionaryCreate(
+                None, key_array, value_array, len(keys), None, None
+            )
+            for item in keys + values:
+                _cf.CFRelease(item)
+
+            self._manager = _iokit.IOHIDManagerCreate(None, 0)
+            if not self._manager:
+                raise OSError("IOHIDManagerCreate failed")
+            _iokit.IOHIDManagerSetDeviceMatching(self._manager, self._matching)
+            res = _iokit.IOHIDManagerOpen(self._manager, 0)
+            if res != 0:
+                raise OSError(f"IOHIDManagerOpen failed: 0x{res:08X}")
+
+            devices = _iokit.IOHIDManagerCopyDevices(self._manager)
+            if not devices:
+                raise OSError(f"No IOHIDDevice for PID 0x{self._product_id:04X}")
+            try:
+                count = _cf.CFSetGetCount(devices)
+                if count <= 0:
+                    raise OSError(f"No IOHIDDevice for PID 0x{self._product_id:04X}")
+                values_buf = (c_void_p * count)()
+                _cf.CFSetGetValues(devices, values_buf)
+                self._device = _cf.CFRetain(values_buf[0])
+            finally:
+                _cf.CFRelease(devices)
+
+            res = _iokit.IOHIDDeviceOpen(self._device, 0)
+            if res != 0:
+                raise OSError(f"IOHIDDeviceOpen failed: 0x{res:08X}")
+
+        def close(self):
+            if self._device:
+                try:
+                    _iokit.IOHIDDeviceClose(self._device, 0)
+                except Exception:
+                    pass
+            if self._device:
+                _cf.CFRelease(self._device)
+                self._device = None
+            if self._matching:
+                _cf.CFRelease(self._matching)
+                self._matching = None
+            if self._manager:
+                _cf.CFRelease(self._manager)
+                self._manager = None
+
+        def set_nonblocking(self, _enabled):
+            return None
+
+        def write(self, buf):
+            arr = (c_uint8 * len(buf))(*buf)
+            res = _iokit.IOHIDDeviceSetReport(
+                self._device,
+                _K_IOHID_REPORT_TYPE_OUTPUT,
+                int(buf[0]),
+                arr,
+                len(buf),
+            )
+            if res != 0:
+                raise OSError(f"IOHIDDeviceSetReport failed: 0x{res:08X}")
+            return len(buf)
+
+        def read(self, _size, timeout_ms=0):
+            report = (c_uint8 * 64)()
+            length = c_long(64)
+            res = _iokit.IOHIDDeviceGetReport(
+                self._device,
+                _K_IOHID_REPORT_TYPE_INPUT,
+                LONG_ID,
+                report,
+                byref(length),
+            )
+            if res != 0:
+                raise OSError(f"IOHIDDeviceGetReport failed: 0x{res:08X}")
+            if length.value <= 0:
+                return b""
+            return bytes(report[:length.value])
+
 # ── Constants ─────────────────────────────────────────────────────
 LOGI_VID       = 0x046D
 
@@ -95,7 +257,7 @@ class HidGestureListener:
     # ── public API ────────────────────────────────────────────────
 
     def start(self):
-        if not HIDAPI_OK:
+        if not HIDAPI_OK and not _MAC_NATIVE_OK:
             print("[HidGesture] 'hidapi' not installed — pip install hidapi")
             return False
         self._running = True
@@ -122,6 +284,8 @@ class HidGestureListener:
     def _vendor_hid_infos():
         """Return list of device-info dicts for Logitech vendor-page TLCs."""
         out = []
+        if not HIDAPI_OK:
+            return out
         try:
             for info in _hid.enumerate(LOGI_VID, 0):
                 if info.get("usage_page", 0) >= 0xFF00:
@@ -376,6 +540,22 @@ class HidGestureListener:
     def _try_connect(self):
         """Open the vendor HID collection, discover features, divert."""
         infos = self._vendor_hid_infos()
+        if sys.platform == "darwin" and _MAC_NATIVE_OK and infos:
+            # hidapi often fails to open Logitech's BLE path on macOS, but
+            # the same HID++ reports can work via native IOHIDDevice APIs.
+            native_infos = []
+            seen_pids = set()
+            for info in infos:
+                pid = info.get("product_id", 0)
+                if pid in seen_pids:
+                    continue
+                seen_pids.add(pid)
+                native_infos.append({
+                    "product_id": pid,
+                    "usage_page": info.get("usage_page", 0),
+                    "native": True,
+                })
+            infos = native_infos + infos
         if not infos:
             return False
 
@@ -383,10 +563,16 @@ class HidGestureListener:
             pid = info.get("product_id", 0)
             up  = info.get("usage_page", 0)
             try:
-                d = _hid.device()
-                d.open_path(info["path"])
-                d.set_nonblocking(False)
+                if info.get("native"):
+                    d = _MacNativeHidDevice(pid)
+                    d.open()
+                else:
+                    d = _hid.device()
+                    d.open_path(info["path"])
+                    d.set_nonblocking(False)
                 self._dev = d
+                transport = "iokit" if info.get("native") else "hidapi"
+                print(f"[HidGesture] Opened PID=0x{pid:04X} via {transport}")
             except Exception as exc:
                 print(f"[HidGesture] Can't open PID=0x{pid:04X} "
                       f"UP=0x{up:04X}: {exc}")
