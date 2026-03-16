@@ -44,7 +44,9 @@ Item {
                                    ? leftCandidateX : rightCandidateX
     property real labelX: Math.max(8, Math.min(width - labelWidth - 8, unclampedLabelX))
     property real labelY: Math.max(8, Math.min(height - labelHeight - 8, cy + labelOffY - 8))
-    property real lineEndX: effectiveLabelSide === "left"
+    property real labelCenterX: labelX + labelWidth / 2
+    property bool sourceIsRightOfLabel: cx >= labelCenterX
+    property real lineEndX: sourceIsRightOfLabel
                             ? labelX + labelWidth - 6
                             : labelX + 6
     property real lineEndY: labelY + labelHeight / 2
@@ -119,7 +121,7 @@ Item {
     Canvas {
         id: lineCanvas
         anchors.fill: parent
-        z: -1
+        z: 0
         onPaint: {
             var ctx = getContext("2d")
             ctx.clearRect(0, 0, width, height)
@@ -147,12 +149,16 @@ Item {
     // ── Annotation label ──────────────────────────────────────
     Rectangle {
         id: labelBg
+        z: 2
         x: labelX
         y: labelY
         width: labelWidth
         height: labelHeight
         radius: 8
-        color: isSelected ? Qt.rgba(0, 0.83, 0.67, uiState.darkMode ? 0.12 : 0.16)
+        color: isSelected
+               ? (uiState.darkMode
+                  ? Qt.rgba(0, 0.83, 0.67, 0.12)
+                  : Qt.rgba(0.82, 0.97, 0.93, 0.9))
                           : uiState.darkMode ? Qt.rgba(0, 0, 0, 0.35) : Qt.rgba(1, 1, 1, 0.92)
         border.width: isSelected || hotspot.activeFocus ? 1 : 0
         border.color: Qt.rgba(0, 0.83, 0.67, 0.3)
@@ -193,6 +199,7 @@ Item {
 
     // ── Small dot at the end of the line ──────────────────────
     Rectangle {
+        z: 1
         x: lineEndX - 3
         y: lineEndY - 3
         width: 6; height: 6; radius: 3
