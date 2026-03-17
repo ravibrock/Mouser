@@ -307,7 +307,7 @@ def main():
 
     # ── System Tray ────────────────────────────────────────────
     tray = QSystemTrayIcon(_tray_icon(), app)
-    tray.setToolTip("Mouser — MX Master 3S")
+    tray.setToolTip("Mouser")
 
     tray_menu = QMenu()
 
