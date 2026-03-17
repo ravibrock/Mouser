@@ -209,6 +209,14 @@ Item {
         return 0
     }
 
+    function currentLayoutChoiceLabel() {
+        var idx = manualLayoutChoiceIndex(backend.deviceLayoutOverrideKey)
+        var choices = backend.manualLayoutChoices
+        if (idx >= 0 && idx < choices.length)
+            return choices[idx].label
+        return "Auto-detect"
+    }
+
     Connections {
         target: backend
         function onDeviceLayoutChanged() {
@@ -470,7 +478,11 @@ Item {
                                 }
 
                                 Text {
-                                    text: "Click a dot to configure its action"
+                                    text: !backend.mouseConnected
+                                          ? "Turn on your Logitech mouse to start customizing buttons"
+                                          : backend.hasInteractiveDeviceLayout
+                                            ? "Click a dot to configure its action"
+                                            : "Choose a layout mode below while we build a dedicated overlay"
                                     font { family: uiState.fontFamily; pixelSize: 12 }
                                     color: theme.textSecondary
                                 }
@@ -610,6 +622,60 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
+                    Rectangle {
+                        visible: backend.mouseConnected
+                                 && (!backend.hasInteractiveDeviceLayout
+                                 || backend.deviceLayoutOverrideKey !== ""
+                                 )
+                        width: Math.min(parent.width - 56, 700)
+                        anchors.left: parent.left
+                        anchors.leftMargin: 28
+                        height: layoutModeCol.implicitHeight + 28
+                        radius: 14
+                        color: theme.bgCard
+                        border.width: 1
+                        border.color: theme.border
+
+                        Column {
+                            id: layoutModeCol
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 8
+
+                            Text {
+                                text: "Layout mode"
+                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                color: theme.textPrimary
+                            }
+
+                            Text {
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                                text: backend.deviceLayoutOverrideKey !== ""
+                                      ? "Experimental override active: " + currentLayoutChoiceLabel()
+                                        + ". Switch back to Auto-detect if the hotspot map does not line up."
+                                      : backend.deviceLayoutNote
+                                font { family: uiState.fontFamily; pixelSize: 11 }
+                                color: theme.textSecondary
+                            }
+
+                            ComboBox {
+                                id: layoutOverrideCombo
+                                width: Math.min(parent.width, 320)
+                                model: backend.manualLayoutChoices
+                                textRole: "label"
+                                Material.accent: theme.accent
+                                font { family: uiState.fontFamily; pixelSize: 11 }
+                                currentIndex: manualLayoutChoiceIndex(backend.deviceLayoutOverrideKey)
+                                onActivated: function(index) {
+                                    backend.setDeviceLayoutOverride(
+                                        backend.manualLayoutChoices[index].key
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // ── Mouse image with hotspots ─────────────
                     Item {
                         id: mouseImageArea
@@ -628,6 +694,7 @@ Item {
                             width: backend.deviceImageWidth
                             height: backend.deviceImageHeight
                             anchors.centerIn: parent
+                            visible: backend.mouseConnected
                             smooth: true
                             mipmap: true
                             asynchronous: true
@@ -635,6 +702,106 @@ Item {
 
                             property real offX: (width - paintedWidth) / 2
                             property real offY: (height - paintedHeight) / 2
+                        }
+
+                        Rectangle {
+                            visible: !backend.mouseConnected
+                            width: Math.min(parent.width - 120, 760)
+                            height: emptyStateCol.implicitHeight + 52
+                            radius: 24
+                            anchors.centerIn: parent
+                            color: theme.bgCard
+                            border.width: 1
+                            border.color: theme.border
+
+                            Column {
+                                id: emptyStateCol
+                                anchors.fill: parent
+                                anchors.margins: 26
+                                spacing: 14
+
+                                Rectangle {
+                                    width: waitingRow.implicitWidth + 16
+                                    height: 28
+                                    radius: 14
+                                    color: Qt.rgba(0.9, 0.3, 0.3, uiState.darkMode ? 0.18 : 0.10)
+
+                                    Row {
+                                        id: waitingRow
+                                        anchors.centerIn: parent
+                                        spacing: 8
+
+                                        Rectangle {
+                                            width: 8
+                                            height: 8
+                                            radius: 4
+                                            color: "#e05555"
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+
+                                        Text {
+                                            text: "Waiting for connection"
+                                            font { family: uiState.fontFamily; pixelSize: 11; bold: true }
+                                            color: "#e05555"
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: "Connect your Logitech mouse"
+                                    wrapMode: Text.WordWrap
+                                    font { family: uiState.fontFamily; pixelSize: 26; bold: true }
+                                    color: theme.textPrimary
+                                }
+
+                                Text {
+                                    width: Math.min(parent.width, 680)
+                                    text: "Mouser will detect the active device, unlock button mapping, and enable the correct layout mode as soon as the mouse is available."
+                                    wrapMode: Text.WordWrap
+                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    color: theme.textSecondary
+                                }
+
+                                Flow {
+                                    width: parent.width
+                                    spacing: 10
+
+                                    Rectangle {
+                                        width: firstHint.implicitWidth + 20
+                                        height: 30
+                                        radius: 15
+                                        color: theme.bgSubtle
+                                        border.width: 1
+                                        border.color: theme.border
+
+                                        Text {
+                                            id: firstHint
+                                            anchors.centerIn: parent
+                                            text: "Layout mode appears automatically"
+                                            font { family: uiState.fontFamily; pixelSize: 11 }
+                                            color: theme.textSecondary
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: secondHint.implicitWidth + 20
+                                        height: 30
+                                        radius: 15
+                                        color: theme.bgSubtle
+                                        border.width: 1
+                                        border.color: theme.border
+
+                                        Text {
+                                            id: secondHint
+                                            anchors.centerIn: parent
+                                            text: "Per-device settings stay separate"
+                                            font { family: uiState.fontFamily; pixelSize: 11 }
+                                            color: theme.textSecondary
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         Repeater {
@@ -658,7 +825,7 @@ Item {
                         }
 
                         Rectangle {
-                            visible: !backend.hasInteractiveDeviceLayout
+                            visible: backend.mouseConnected && !backend.hasInteractiveDeviceLayout
                             width: Math.min(420, parent.width - 48)
                             height: fallbackCol.implicitHeight + 32
                             radius: 16
@@ -688,41 +855,6 @@ Item {
                                     color: theme.textSecondary
                                 }
 
-                                Rectangle {
-                                    width: parent.width
-                                    height: 1
-                                    color: theme.border
-                                }
-
-                                Text {
-                                    text: "Try another supported map"
-                                    width: parent.width
-                                    font { family: uiState.fontFamily; pixelSize: 12; bold: true }
-                                    color: theme.textPrimary
-                                }
-
-                                Text {
-                                    text: "This is experimental. If the chosen map is close enough, you can still edit actions and see whether the controls line up on your device."
-                                    width: parent.width
-                                    wrapMode: Text.WordWrap
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
-                                    color: theme.textSecondary
-                                }
-
-                                ComboBox {
-                                    id: layoutOverrideCombo
-                                    width: parent.width
-                                    model: backend.manualLayoutChoices
-                                    textRole: "label"
-                                    Material.accent: theme.accent
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
-                                    currentIndex: manualLayoutChoiceIndex(backend.deviceLayoutOverrideKey)
-                                    onActivated: function(index) {
-                                        backend.setDeviceLayoutOverride(
-                                            backend.manualLayoutChoices[index].key
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
