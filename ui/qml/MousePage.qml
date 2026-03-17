@@ -641,17 +641,19 @@ Item {
                             model: backend.deviceHotspots
 
                             delegate: HotspotDot {
+                                required property int index
+                                readonly property var hotspot: backend.deviceHotspots[index]
                                 anchors.fill: mouseImageArea
                                 imgItem: mouseImg
-                                normX: modelData.normX
-                                normY: modelData.normY
-                                buttonKey: modelData.buttonKey
-                                isHScroll: modelData.isHScroll === true
-                                label: modelData.label || modelData.buttonKey
-                                sublabel: hotspotSublabel(modelData)
-                                labelSide: modelData.labelSide || "right"
-                                labelOffX: modelData.labelOffX === undefined ? 120 : modelData.labelOffX
-                                labelOffY: modelData.labelOffY === undefined ? -30 : modelData.labelOffY
+                                normX: Number(hotspot["normX"] || 0)
+                                normY: Number(hotspot["normY"] || 0)
+                                buttonKey: String(hotspot["buttonKey"] || "")
+                                isHScroll: hotspot["isHScroll"] === true
+                                label: String(hotspot["label"] || hotspot["buttonKey"] || "")
+                                sublabel: hotspotSublabel(hotspot)
+                                labelSide: String(hotspot["labelSide"] || "right")
+                                labelOffX: hotspot["labelOffX"] === undefined ? 120 : Number(hotspot["labelOffX"])
+                                labelOffY: hotspot["labelOffY"] === undefined ? -30 : Number(hotspot["labelOffY"])
                             }
                         }
 
