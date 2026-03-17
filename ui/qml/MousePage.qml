@@ -407,7 +407,7 @@ Item {
                                     spacing: 8
 
                                     Text {
-                                        text: "MX Master 3S"
+                                        text: backend.deviceDisplayName
                                         font { family: uiState.fontFamily; pixelSize: 20; bold: true }
                                         color: theme.textPrimary
                                     }

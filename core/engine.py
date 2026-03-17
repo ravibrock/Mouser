@@ -254,6 +254,10 @@ class Engine:
         return self.hook.device_connected
 
     @property
+    def connected_device(self):
+        return getattr(self.hook, "connected_device", None)
+
+    @property
     def enabled(self):
         return self._enabled
 

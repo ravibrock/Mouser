@@ -36,6 +36,7 @@ class Backend(QObject):
     debugEventsEnabledChanged = Signal()
     gestureStateChanged = Signal()
     gestureRecordsChanged = Signal()
+    deviceInfoChanged = Signal()
 
     # Internal cross-thread signals
     _profileSwitchRequest = Signal(str)
@@ -50,6 +51,7 @@ class Backend(QObject):
         self._engine = engine
         self._cfg = load_config()
         self._mouse_connected = False
+        self._device_display_name = "Logitech mouse"
         self._battery_level = -1
         self._debug_lines = []
         self._debug_events_enabled = bool(
@@ -187,6 +189,10 @@ class Backend(QObject):
     @Property(bool, notify=mouseConnectedChanged)
     def mouseConnected(self):
         return self._mouse_connected
+
+    @Property(str, notify=deviceInfoChanged)
+    def deviceDisplayName(self):
+        return self._device_display_name
 
     @Property(int, notify=batteryLevelChanged)
     def batteryLevel(self):
@@ -463,6 +469,12 @@ class Backend(QObject):
     def _handleConnectionChange(self, connected):
         """Runs on Qt main thread."""
         self._mouse_connected = connected
+        if connected and self._engine:
+            device = getattr(self._engine, "connected_device", None)
+            display_name = getattr(device, "display_name", "") or "Logitech mouse"
+            if display_name != self._device_display_name:
+                self._device_display_name = display_name
+                self.deviceInfoChanged.emit()
         if not connected and self._battery_level != -1:
             self._battery_level = -1
             self.batteryLevelChanged.emit()
