@@ -122,8 +122,43 @@ class ApplyLoginStartupWindowsTests(unittest.TestCase):
 
 
 class ApplyLoginStartupMacTests(unittest.TestCase):
+    def test_program_arguments_use_interpreter_and_script_in_source_mode(self):
+        with (
+            patch.object(sys, "platform", "darwin"),
+            patch.object(sys, "frozen", False, create=True),
+            patch.object(sys, "executable", "/opt/homebrew/bin/python3"),
+            patch.object(sys, "argv", ["/tmp/Mouser/main_qml.py"]),
+            patch("os.path.abspath", side_effect=lambda p: p),
+        ):
+            args = st._program_arguments()
+
+        self.assertEqual(
+            args,
+            ["/opt/homebrew/bin/python3", "/tmp/Mouser/main_qml.py"],
+        )
+
+    def test_program_arguments_use_bundle_executable_when_frozen(self):
+        with (
+            patch.object(sys, "platform", "darwin"),
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(sys, "executable", "/Applications/Mouser.app/Contents/MacOS/Mouser"),
+            patch("os.path.abspath", side_effect=lambda p: p),
+        ):
+            args = st._program_arguments()
+
+        self.assertEqual(args, ["/Applications/Mouser.app/Contents/MacOS/Mouser"])
+
+    def test_macos_plist_path_uses_canonical_launch_agent_name(self):
+        with patch("os.path.expanduser", side_effect=lambda p: p.replace("~", "/Users/test")):
+            plist_path = st._macos_plist_path()
+
+        self.assertEqual(
+            plist_path,
+            "/Users/test/Library/LaunchAgents/io.github.tombadash.mouser.plist",
+        )
+
     def test_macos_enable_writes_plist_and_bootstraps(self):
-        plist = "/tmp/com.mouser.startup.plist"
+        plist = "/tmp/io.github.tombadash.mouser.plist"
         domain = "gui/501"
 
         with (
@@ -149,7 +184,7 @@ class ApplyLoginStartupMacTests(unittest.TestCase):
         )
 
     def test_macos_disable_bootout_and_remove_when_plist_exists(self):
-        plist = "/tmp/com.mouser.startup.plist"
+        plist = "/tmp/io.github.tombadash.mouser.plist"
         domain = "gui/501"
 
         with (
@@ -171,7 +206,7 @@ class ApplyLoginStartupMacTests(unittest.TestCase):
         m_remove.assert_called_once_with(plist)
 
     def test_macos_disable_uses_label_bootout_when_no_plist(self):
-        plist = "/tmp/com.mouser.startup.plist"
+        plist = "/tmp/io.github.tombadash.mouser.plist"
         domain = "gui/501"
 
         with (

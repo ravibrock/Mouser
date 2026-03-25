@@ -10,8 +10,8 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE_NAME = "Mouser"
 
 # macOS
-MACOS_LAUNCH_AGENT_LABEL = "com.mouser.startup"
-MACOS_PLIST_NAME = "com.mouser.startup.plist"
+MACOS_LAUNCH_AGENT_LABEL = "io.github.tombadash.mouser"
+MACOS_PLIST_NAME = f"{MACOS_LAUNCH_AGENT_LABEL}.plist"
 
 
 def supports_login_startup():
@@ -138,4 +138,3 @@ def apply_login_startup(enabled: bool) -> None:
 def sync_from_config(enabled: bool) -> None:
     """Ensure OS login startup matches config."""
     apply_login_startup(enabled)
-

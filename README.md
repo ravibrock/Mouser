@@ -192,7 +192,7 @@ Mouser.bat
 ```
 
 > **Tip:** To run without a console window, use `pythonw.exe main_qml.py` or the `.lnk` shortcut.
-> On macOS, `--start-hidden` is the same switch used by the Start at login LaunchAgent.
+> On macOS, `--start-hidden` is the same tray-first startup path used when you launch Mouser directly in the background. The login item uses your saved startup settings.
 
 Temporary macOS transport override for debugging:
 
@@ -373,7 +373,6 @@ mouser/
 │   ├── logi_devices.py      # Known Logitech device catalog + connected-device metadata
 │   ├── device_layouts.py    # Device-family layout registry for QML overlays
 │   ├── key_simulator.py     # Platform-specific action simulator
-│   ├── autostart.py         # macOS LaunchAgent helpers
 │   ├── startup.py           # Cross-platform login startup (Windows registry + macOS LaunchAgent)
 │   ├── config.py            # Config manager (JSON load/save/migrate)
 │   └── app_detector.py      # Foreground app polling
