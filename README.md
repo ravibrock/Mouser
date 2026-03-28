@@ -102,19 +102,16 @@ Action labels adapt by platform. For example, Windows exposes `Win+D` and `Task 
 
 <p align="center">
   <a href="https://github.com/TomBadash/Mouser/releases/latest">
-    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/Mouser-Windows.zip/total?style=for-the-badge&color=00d4aa&logo=windows&label=Windows" alt="Windows Downloads" />
+    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-Windows.zip?style=for-the-badge&color=00d4aa&logo=windows&label=Windows&displayAssetName=false" alt="Windows Downloads" />
   </a>
   <a href="https://github.com/TomBadash/Mouser/releases/latest">
-    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/Mouser-macOS.zip/total?style=for-the-badge&color=00d4aa&logo=apple&label=macOS" alt="macOS Downloads" />
+    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-macOS.zip?style=for-the-badge&color=00d4aa&logo=apple&label=macOS&displayAssetName=false" alt="macOS Downloads" />
   </a>
   <a href="https://github.com/TomBadash/Mouser/releases/latest">
-    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/Mouser-Linux.zip/total?style=for-the-badge&color=00d4aa&logo=linux&label=Linux" alt="Linux Downloads" />
+    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-Linux.zip?style=for-the-badge&color=00d4aa&logo=linux&label=Linux&displayAssetName=false" alt="Linux Downloads" />
   </a>
   <br />
-  <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/Mouser.zip/total?style=for-the-badge&color=888888&label=Previous%20Releases%20(Mouser.zip)" alt="Previous Mouser.zip Downloads" />
-  <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/LogiControl.zip/total?style=for-the-badge&color=888888&label=v1.0%20(LogiControl.zip)" alt="LogiControl.zip Downloads" />
-  <br />
-  <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/total?style=for-the-badge&color=00d4aa&label=Total%20Downloads" alt="Downloads" />
+  <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/total?style=for-the-badge&color=00d4aa&label=Total%20Downloads%20(all%20versions)" alt="Downloads" />
 </p>
 
 ### Steps
