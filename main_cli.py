@@ -192,7 +192,6 @@ def stop_background_service() -> int:
 
 
 def assemble_full_config(config: dict[str, Any]):
-    print(json.dumps(config, indent=4))
     try:
         active_profile = config["active_profile"]
         if active_profile not in config["profiles"]:
