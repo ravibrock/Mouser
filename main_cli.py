@@ -144,8 +144,8 @@ def load_config_and_start(
 def _service_program_arguments() -> list[str]:
     exe = os.path.abspath(sys.executable)
     if getattr(sys, "frozen", False):
-        return [exe, "_run"]
-    return [exe, os.path.abspath(__file__), "_run"]
+        return [exe, "run"]
+    return [exe, os.path.abspath(__file__), "run"]
 
 
 def _service_plist_path() -> str:
@@ -232,8 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser(
-        "_run",
-        help=argparse.SUPPRESS,
+        "run",
+        help="Run the headless Mouser engine in the foreground (for testing and debugging)",
     )
 
     return parser
@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             return start_background_service()
         if args.command == "stop":
             return stop_background_service()
-        if args.command == "_run":
+        if args.command == "run":
             return run_headless_instance()
         parser.error(f"Unknown command: {args.command}")
     except (ConfigValidationError, json.JSONDecodeError, OSError, RuntimeError) as exc:
