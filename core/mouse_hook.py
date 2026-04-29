@@ -6,6 +6,9 @@ so we can remap them before they reach applications.
 """
 
 import queue
+import glob
+import os
+import stat
 import sys
 import threading
 import time
@@ -55,6 +58,60 @@ def _format_debug_details(raw_data):
         parts = [f"{k}={v}" for k, v in raw_data.items()]
         return " " + " ".join(parts)
     return f" value={raw_data}"
+
+
+_LOG_ONCE_KEYS = set()
+
+
+def _log_once(key, message):
+    if key in _LOG_ONCE_KEYS:
+        return
+    _LOG_ONCE_KEYS.add(key)
+    print(message)
+
+
+def _owner_name(uid):
+    try:
+        import pwd
+        return pwd.getpwuid(uid).pw_name
+    except Exception:
+        return str(uid)
+
+
+def _group_name(gid):
+    try:
+        import grp
+        return grp.getgrgid(gid).gr_name
+    except Exception:
+        return str(gid)
+
+
+def _format_linux_device_access(path):
+    if not path:
+        return "path=-"
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        return f"path={path} stat_error={exc}"
+
+    mode = stat.S_IMODE(st.st_mode)
+    can_read = os.access(path, os.R_OK)
+    can_write = os.access(path, os.W_OK)
+    can_rw = os.access(path, os.R_OK | os.W_OK)
+    return (
+        f"path={path} mode={mode:04o} "
+        f"owner={_owner_name(st.st_uid)}({st.st_uid}) "
+        f"group={_group_name(st.st_gid)}({st.st_gid}) "
+        f"access=read:{can_read} write:{can_write} read_write:{can_rw}"
+    )
+
+
+def _format_linux_device_access_list(paths, limit=8):
+    details = [_format_linux_device_access(path) for path in list(paths)[:limit]]
+    remaining = max(0, len(paths) - limit)
+    if remaining:
+        details.append(f"... {remaining} more")
+    return "; ".join(details) if details else "-"
 
 
 # ==================================================================
@@ -1759,7 +1816,10 @@ elif sys.platform == "linux":
         _EVDEV_OK = False
         print("[MouseHook] python-evdev not installed — pip install evdev")
 
-    from core.logi_devices import build_evdev_connected_device_info
+    from core.logi_devices import (
+        build_evdev_connected_device_info,
+        resolve_device as _resolve_logi_device,
+    )
 
     _LOGI_VENDOR = 0x046D
 
@@ -2208,10 +2268,50 @@ elif sys.platform == "linux":
         def _find_mouse_device(self):
             """Find the best Logitech mouse evdev device."""
             logi_mice = []
-            for path in _evdev_mod.list_devices():
+            try:
+                paths = list(_evdev_mod.list_devices())
+            except Exception as exc:
+                _log_once(
+                    ("evdev-list-error", type(exc).__name__, str(exc)),
+                    f"[MouseHook] Cannot list evdev devices: {exc}"
+                )
+                return None
+            if not paths:
+                event_paths = sorted(glob.glob("/dev/input/event*"))
+                if event_paths:
+                    _log_once(
+                        "evdev-empty-fallback-event-nodes",
+                        "[MouseHook] evdev returned no input devices; falling "
+                        "back to visible /dev/input/event* nodes: "
+                        f"{_format_linux_device_access_list(event_paths)}"
+                    )
+                    paths = event_paths
+                else:
+                    _log_once(
+                        "evdev-no-input-devices",
+                        "[MouseHook] evdev returned no input devices and no "
+                        "/dev/input/event* nodes are visible; remapping needs "
+                        f"/dev/input/event* access. "
+                        f"{_format_linux_device_access('/dev/input')}"
+                    )
+
+            for path in paths:
                 try:
                     dev = _InputDevice(path)
-                except Exception:
+                except PermissionError as exc:
+                    _log_once(
+                        ("evdev-open-permission", path),
+                        f"[MouseHook] Permission denied opening {path}: {exc}. "
+                        f"{_format_linux_device_access(path)}. "
+                        "Add the user to a group with /dev/input/event* access "
+                        "or install a udev rule."
+                    )
+                    continue
+                except Exception as exc:
+                    _log_once(
+                        ("evdev-open-error", path, type(exc).__name__, str(exc)),
+                        f"[MouseHook] Cannot open evdev device {path}: {exc}"
+                    )
                     continue
                 try:
                     caps = dev.capabilities(absinfo=False)
@@ -2231,7 +2331,19 @@ elif sys.platform == "linux":
                     has_side = bool(key_caps.intersection({
                         _ecodes.BTN_SIDE, _ecodes.BTN_EXTRA,
                     }))
-                except Exception:
+                except PermissionError as exc:
+                    _log_once(
+                        ("evdev-capabilities-permission", dev.path),
+                        f"[MouseHook] Permission denied reading capabilities for "
+                        f"{dev.path}: {exc}"
+                    )
+                    dev.close()
+                    continue
+                except Exception as exc:
+                    _log_once(
+                        ("evdev-capabilities-error", dev.path, type(exc).__name__, str(exc)),
+                        f"[MouseHook] Cannot inspect evdev device {dev.path}: {exc}"
+                    )
                     dev.close()
                     continue
                 if dev.info.vendor == _LOGI_VENDOR:
@@ -2254,7 +2366,26 @@ elif sys.platform == "linux":
                         )
                     dev.close()
 
-            ordered = sorted(logi_mice, key=lambda x: -x[1])
+            def _event_num(dev):
+                try:
+                    return int(str(dev.path).rsplit("event", 1)[1])
+                except (IndexError, ValueError):
+                    return -1
+
+            def _sort_key(item):
+                dev, has_side = item
+                info = getattr(dev, "info", None)
+                spec = _resolve_logi_device(
+                    product_id=getattr(info, "product", None),
+                    product_name=getattr(dev, "name", None),
+                )
+                return (
+                    int(spec is not None),
+                    int(has_side),
+                    _event_num(dev),
+                )
+
+            ordered = sorted(logi_mice, key=_sort_key, reverse=True)
             if ordered:
                 chosen = ordered[0][0]
                 for dev, _ in ordered[1:]:
@@ -2262,6 +2393,12 @@ elif sys.platform == "linux":
                 print(f"[MouseHook] Found mouse: {chosen.name} ({chosen.path}) "
                       f"vendor=0x{chosen.info.vendor:04X}")
                 return chosen
+            _log_once(
+                "evdev-no-logitech-mouse",
+                "[MouseHook] No Logitech evdev mouse found; UI connection state "
+                "and remapping require a Logitech mouse visible under "
+                "/dev/input/event* with vendor 0x046D"
+            )
             return None
 
         def _setup_evdev(self):
