@@ -1,8 +1,84 @@
+import importlib
+import os
+import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from core import hid_gesture
+
+
+class HidModuleImportTests(unittest.TestCase):
+    def tearDown(self):
+        importlib.reload(hid_gesture)
+
+    def test_linux_prefers_hidraw_module_when_available(self):
+        fake_hidraw = SimpleNamespace(device=object, enumerate=lambda *_args: [])
+        fake_hid = SimpleNamespace(device=object, enumerate=lambda *_args: [])
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(sys.modules, {"hidraw": fake_hidraw, "hid": fake_hid}),
+        ):
+            module = importlib.reload(hid_gesture)
+
+        self.assertTrue(module.HIDAPI_OK)
+        self.assertIs(module._hid, fake_hidraw)
+        self.assertEqual(module._HID_MODULE_NAME, "hidraw")
+
+    def test_linux_falls_back_to_hid_when_hidraw_module_is_absent(self):
+        fake_hid = SimpleNamespace(device=object, enumerate=lambda *_args: [])
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(sys.modules, {"hidraw": None, "hid": fake_hid}),
+        ):
+            module = importlib.reload(hid_gesture)
+
+        self.assertTrue(module.HIDAPI_OK)
+        self.assertIs(module._hid, fake_hid)
+        self.assertEqual(module._HID_MODULE_NAME, "hid")
+
+
+class HidLinuxDiagnosticsTests(unittest.TestCase):
+    def test_linux_logitech_hidraw_nodes_reads_sysfs_uevent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node_dir = os.path.join(tmp, "hidraw3", "device")
+            os.makedirs(node_dir)
+            with open(os.path.join(node_dir, "uevent"), "w", encoding="utf-8") as fh:
+                fh.write("HID_ID=0005:0000046D:0000B034\n")
+                fh.write("HID_NAME=MX Master 3S\n")
+
+            with patch.object(sys, "platform", "linux"):
+                nodes = hid_gesture._linux_logitech_hidraw_nodes(base=tmp)
+
+        self.assertEqual(nodes, ["hidraw3 PID=0xB034 product=MX Master 3S"])
+
+    def test_summarize_hid_infos_includes_candidate_metadata(self):
+        summary = hid_gesture._summarize_hid_infos([
+            {
+                "product_id": 0xB034,
+                "usage_page": 0x0000,
+                "usage": 0x0001,
+                "transport": "Bluetooth Low Energy",
+                "product_string": "MX Master 3S",
+            }
+        ])
+
+        self.assertIn("PID=0xB034", summary)
+        self.assertIn("UP=0x0000", summary)
+        self.assertIn("product=MX Master 3S", summary)
+
+    def test_format_linux_device_access_includes_path_permissions_and_access(self):
+        with tempfile.NamedTemporaryFile() as fh:
+            summary = hid_gesture._format_linux_device_access(fh.name.encode())
+
+        self.assertIn("path=", summary)
+        self.assertIn("mode=", summary)
+        self.assertIn("owner=", summary)
+        self.assertIn("group=", summary)
+        self.assertIn("access=read:", summary)
 
 
 class HidBackendPreferenceTests(unittest.TestCase):
@@ -55,6 +131,97 @@ class _FakeHidDevice:
         self.open_path = Mock()
         self.set_nonblocking = Mock()
         self.close = Mock()
+
+
+class HidEnumerationFallbackTests(unittest.TestCase):
+    @staticmethod
+    def _printed_messages(print_mock):
+        return [
+            " ".join(str(arg) for arg in call.args)
+            for call in print_mock.call_args_list
+        ]
+
+    def test_try_connect_accepts_known_device_without_usage_metadata(self):
+        listener = hid_gesture.HidGestureListener()
+        info = {
+            "product_id": 0xB034,
+            "usage_page": 0x0000,
+            "usage": 0x0000,
+            "transport": "Bluetooth Low Energy",
+            "product_string": "MX Master 3S",
+            "path": b"/dev/hidraw-test",
+        }
+        fake_dev = _FakeHidDevice()
+
+        def fake_find_feature(feature_id):
+            if feature_id == hid_gesture.FEAT_REPROG_V4:
+                return 0x10
+            return None
+
+        with (
+            patch.object(hid_gesture, "HIDAPI_OK", True),
+            patch.object(hid_gesture, "_BACKEND_PREFERENCE", "hidapi"),
+            patch.object(hid_gesture, "_HID_API_STYLE", "hidapi"),
+            patch.object(
+                hid_gesture,
+                "_hid",
+                SimpleNamespace(
+                    enumerate=lambda vid, pid: [info],
+                    device=lambda: fake_dev,
+                ),
+                create=True,
+            ),
+            patch.object(listener, "_find_feature", side_effect=fake_find_feature),
+            patch.object(listener, "_discover_reprog_controls", return_value=[]),
+            patch.object(listener, "_divert", return_value=True),
+            patch.object(listener, "_divert_extras"),
+            patch("builtins.print") as print_mock,
+        ):
+            self.assertTrue(listener._try_connect())
+
+        messages = self._printed_messages(print_mock)
+        self.assertTrue(
+            any(
+                "Accepting known Logitech device without vendor usage metadata"
+                in message
+                for message in messages
+            )
+        )
+        self.assertEqual(listener.connected_device.display_name, "MX Master 3S")
+
+    def test_vendor_hid_infos_logs_when_logitech_interfaces_are_filtered_out(self):
+        info = {
+            "product_id": 0x1234,
+            "usage_page": 0x0000,
+            "usage": 0x0000,
+            "transport": "Bluetooth Low Energy",
+            "product_string": "Unknown Logitech",
+            "path": b"/dev/hidraw-test",
+        }
+
+        with (
+            patch.object(hid_gesture, "HIDAPI_OK", True),
+            patch.object(hid_gesture, "_BACKEND_PREFERENCE", "hidapi"),
+            patch.object(
+                hid_gesture,
+                "_hid",
+                SimpleNamespace(enumerate=lambda vid, pid: [info]),
+                create=True,
+            ),
+            patch("builtins.print") as print_mock,
+        ):
+            infos = hid_gesture.HidGestureListener._vendor_hid_infos()
+
+        self.assertEqual(infos, [])
+        messages = self._printed_messages(print_mock)
+        self.assertTrue(
+            any(
+                "hidapi found Logitech interfaces, but none matched vendor "
+                "usage metadata or known-device fallback"
+                in message
+                for message in messages
+            )
+        )
 
 
 class HidDiscoveryDiagnosticsTests(unittest.TestCase):
@@ -113,6 +280,36 @@ class HidDiscoveryDiagnosticsTests(unittest.TestCase):
             any(self._is_missing_reprog_diag(message) for message in messages)
         )
         fake_dev.close.assert_called_once_with()
+
+    def test_try_connect_logs_linux_hid_path_access_before_open(self):
+        listener, info = self._make_listener()
+        fake_dev = _FakeHidDevice()
+        fake_dev.open_path.side_effect = OSError("open failed")
+
+        with tempfile.NamedTemporaryFile() as fh:
+            info = dict(info, path=fh.name.encode())
+            with (
+                patch.object(sys, "platform", "linux"),
+                patch.object(listener, "_vendor_hid_infos", return_value=[info]),
+                patch.object(hid_gesture, "HIDAPI_OK", True),
+                patch.object(hid_gesture, "_BACKEND_PREFERENCE", "hidapi"),
+                patch.object(hid_gesture, "_HID_API_STYLE", "hidapi"),
+                patch.object(
+                    hid_gesture,
+                    "_hid",
+                    SimpleNamespace(device=lambda: fake_dev),
+                    create=True,
+                ),
+                patch("builtins.print") as print_mock,
+            ):
+                hid_gesture._LOG_ONCE_KEYS.clear()
+                self.assertFalse(listener._try_connect())
+
+        messages = self._printed_messages(print_mock)
+        self.assertTrue(
+            any("HID path access before open:" in message for message in messages)
+        )
+        self.assertTrue(any("access=read:" in message for message in messages))
 
     def test_try_connect_success_path_keeps_existing_reprog_discovery_diagnostics(self):
         listener, info = self._make_listener()
