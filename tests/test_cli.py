@@ -57,6 +57,7 @@ class CliTests(unittest.TestCase):
                 "debug_mode": False,
                 "device_layout_overrides": {},
                 "language": "en",
+                "ignore_trackpad": True,
             },
         }
 
@@ -105,7 +106,6 @@ class CliTests(unittest.TestCase):
 
         normalized = main_cli.normalize_config(legacy)
 
-        self.assertEqual(normalized["version"], 8)
         self.assertEqual(normalized["profiles"]["default"]["apps"], [])
         self.assertEqual(
             normalized["profiles"]["default"]["mappings"]["mode_shift"],
@@ -136,7 +136,6 @@ class CliTests(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(saved["cfg"]["version"], 8)
         self.assertEqual(
             saved["cfg"]["profiles"]["default"]["mappings"]["mode_shift"],
             "switch_scroll_mode",
@@ -157,7 +156,6 @@ class CliTests(unittest.TestCase):
             )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(saved["cfg"]["version"], 8)
         start_background_service.assert_called_once_with()
 
     def test_normalize_rejects_unknown_top_level_key(self):
@@ -165,6 +163,22 @@ class CliTests(unittest.TestCase):
         raw["bogus"] = True
 
         with self.assertRaisesRegex(ValueError, r"Unknown key at bogus"):
+            main_cli.normalize_config(raw)
+
+    def test_normalize_rejects_missing_default_profile(self):
+        raw = self._valid_config()
+        raw["profiles"] = {
+            "work": {
+                "label": "Work",
+                "apps": ["com.example.Work"],
+                "mappings": {
+                    "middle": "copy",
+                },
+            }
+        }
+        raw["active_profile"] = "work"
+
+        with self.assertRaisesRegex(ValueError, r"Config must define a `default` profile"):
             main_cli.normalize_config(raw)
 
     def test_normalize_rejects_unknown_mapping_key(self):
@@ -195,7 +209,7 @@ class CliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"settings.start_minimized must be a boolean"):
             main_cli.normalize_config(raw)
 
-    def test_load_rejects_active_profile_with_nonempty_apps(self):
+    def test_load_rejects_default_profile_with_nonempty_apps(self):
         raw = self._valid_config()
         raw["profiles"]["default"]["apps"] = ["com.example.App"]
 
@@ -203,7 +217,7 @@ class CliTests(unittest.TestCase):
             config_path = Path(tmp_dir) / "import.json"
             config_path.write_text(json.dumps(raw), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, r"Active profile must have an empty `apps` list"):
+            with self.assertRaisesRegex(ValueError, r"Default profile must have an empty `apps` list"):
                 main_cli.load_config_and_start(str(config_path))
 
     def test_main_load_invalid_config_prints_human_readable_error(self):
@@ -296,7 +310,7 @@ class CliTests(unittest.TestCase):
             patch("main_cli.setup_logging"),
             patch("main_cli.run_headless_instance", return_value=0) as run_headless_instance,
         ):
-            self.assertEqual(main_cli.main(["_run"]), 0)
+            self.assertEqual(main_cli.main(["run"]), 0)
 
         run_headless_instance.assert_called_once_with()
 

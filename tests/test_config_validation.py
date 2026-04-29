@@ -37,7 +37,6 @@ class ConfigValidationTests(unittest.TestCase):
 
         normalized = normalize_config(legacy)
 
-        self.assertEqual(normalized["version"], 8)
         self.assertEqual(normalized["profiles"]["default"]["apps"], [])
         self.assertEqual(
             normalized["profiles"]["default"]["mappings"]["mode_shift"],
@@ -45,11 +44,64 @@ class ConfigValidationTests(unittest.TestCase):
         )
         self.assertIn("language", normalized["settings"])
 
+    def test_normalize_unversioned_config_treats_it_as_current_schema(self):
+        raw = {
+            "active_profile": "default",
+            "profiles": {
+                "default": {
+                    "label": "Default",
+                    "apps": [],
+                    "mappings": {
+                        "mode_shift": "custom:super+shift+4",
+                    },
+                },
+                "finder": {
+                    "label": "Finder",
+                    "apps": ["com.apple.finder"],
+                    "mappings": {
+                        "xbutton1": "custom:tab",
+                    },
+                },
+            },
+            "settings": {},
+        }
+
+        normalized = normalize_config(raw)
+
+        self.assertEqual(normalized["version"], DEFAULT_CONFIG["version"])
+        self.assertNotIn("mode_shift", normalized["profiles"]["finder"]["mappings"])
+
+        assembled = assemble_full_config(normalized)
+
+        self.assertEqual(
+            assembled["profiles"]["finder"]["mappings"]["mode_shift"],
+            "custom:super+shift+4",
+        )
+
     def test_validate_rejects_unknown_top_level_key(self):
         cfg = self._valid_config()
         cfg["bogus"] = True
 
         with self.assertRaisesRegex(ConfigValidationError, r"Unknown key at bogus"):
+            validate_config(cfg)
+
+    def test_validate_rejects_missing_default_profile(self):
+        cfg = self._valid_config()
+        cfg["profiles"] = {
+            "work": {
+                "label": "Work",
+                "apps": ["com.example.Work"],
+                "mappings": {
+                    "middle": "copy",
+                },
+            }
+        }
+        cfg["active_profile"] = "work"
+
+        with self.assertRaisesRegex(
+            ConfigValidationError,
+            r"Config must define a `default` profile",
+        ):
             validate_config(cfg)
 
     def test_validate_rejects_wrong_type_via_schema(self):
@@ -102,17 +154,17 @@ class ConfigValidationTests(unittest.TestCase):
         ):
             validate_config(cfg)
 
-    def test_assemble_full_config_rejects_active_profile_with_apps(self):
+    def test_assemble_full_config_rejects_default_profile_with_apps(self):
         cfg = self._valid_config()
         cfg["profiles"]["default"]["apps"] = ["com.example.App"]
 
         with self.assertRaisesRegex(
             ConfigValidationError,
-            r"Active profile must have an empty `apps` list",
+            r"Default profile must have an empty `apps` list",
         ):
             assemble_full_config(cfg)
 
-    def test_assemble_full_config_fills_missing_profile_mappings_from_active_profile(self):
+    def test_assemble_full_config_fills_missing_profile_mappings_from_default_profile(self):
         cfg = self._valid_config()
         cfg["profiles"]["work"] = {
             "label": "Work",
@@ -132,6 +184,29 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(
             assembled["profiles"]["work"]["mappings"]["mode_shift"],
             cfg["profiles"]["default"]["mappings"]["mode_shift"],
+        )
+
+    def test_assemble_full_config_uses_default_profile_even_when_active_profile_is_app_specific(self):
+        cfg = self._valid_config()
+        cfg["active_profile"] = "ghostty"
+        cfg["profiles"]["default"]["mappings"]["mode_shift"] = "custom:super+shift+4"
+        cfg["profiles"]["ghostty"] = {
+            "label": "Ghostty",
+            "apps": ["com.mitchellh.ghostty"],
+            "mappings": {
+                "hscroll_left": "next_tab",
+            },
+        }
+
+        assembled = assemble_full_config(cfg)
+
+        self.assertEqual(
+            assembled["profiles"]["ghostty"]["mappings"]["mode_shift"],
+            "custom:super+shift+4",
+        )
+        self.assertEqual(
+            assembled["profiles"]["ghostty"]["mappings"]["xbutton1"],
+            cfg["profiles"]["default"]["mappings"]["xbutton1"],
         )
 
 

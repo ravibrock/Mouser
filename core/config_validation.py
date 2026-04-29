@@ -100,6 +100,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
                     "additionalProperties": {"type": "string", "minLength": 1},
                 },
                 "language": {"type": "string", "minLength": 1},
+                "ignore_trackpad": {"type": "boolean"},
                 "dpi_presets": {
                     "type": "array",
                     "minItems": 1,
@@ -220,6 +221,8 @@ def validate_config(cfg: dict[str, Any]) -> None:
 
     active_profile = cfg["active_profile"]
     profiles = cfg["profiles"]
+    if "default" not in profiles:
+        raise ConfigValidationError("Config must define a `default` profile")
     if active_profile not in profiles:
         raise ConfigValidationError(
             f"Active profile '{active_profile}' not found in profiles"
@@ -250,6 +253,11 @@ def normalize_config(raw_cfg: Any) -> dict[str, Any]:
     if not isinstance(raw_cfg, dict):
         raise ConfigValidationError("Config document must be an object")
     cfg = json.loads(json.dumps(raw_cfg))
+    profiles = cfg.get("profiles")
+    if isinstance(profiles, dict) and "default" not in profiles:
+        raise ConfigValidationError("Config must define a `default` profile")
+    if "version" not in cfg:
+        cfg["version"] = DEFAULT_CONFIG["version"]
     cfg = _migrate(cfg)
     cfg = _merge_defaults(cfg, DEFAULT_CONFIG)
     validate_config(cfg)
@@ -266,12 +274,14 @@ def assemble_full_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ConfigValidationError(
             f"Active profile '{active_profile}' not found in profiles"
         )
-    if profiles[active_profile].get("apps") != []:
-        raise ConfigValidationError("Active profile must have an empty `apps` list")
+    if "default" not in profiles:
+        raise ConfigValidationError("Config must define a `default` profile")
+    if profiles["default"].get("apps") != []:
+        raise ConfigValidationError("Default profile must have an empty `apps` list")
 
-    default_mappings = profiles[active_profile]["mappings"]
+    default_mappings = profiles["default"]["mappings"]
     for profile_name, profile in profiles.items():
-        if profile_name == active_profile:
+        if profile_name == "default":
             continue
         for mapping in default_mappings:
             if mapping not in profile["mappings"]:
