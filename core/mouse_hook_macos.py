@@ -47,6 +47,7 @@ _SCROLL_INVERT_MARKER = 0x4D4F5553
 _INJECTED_EVENT_MARKER = 0x4D4F5554
 _kCGEventTapDisabledByTimeout = 0xFFFFFFFE
 _kCGEventTapDisabledByUserInput = 0xFFFFFFFF
+_BTN_GESTURE_RAW_CANDIDATES = {5, 6}
 
 
 class MouseHook(BaseMouseHook):
@@ -110,6 +111,21 @@ class MouseHook(BaseMouseHook):
             f"dx={delta_x} dy={delta_y}"
         )
         self._accumulate_gesture_delta(delta_x, delta_y, "event_tap")
+
+    def _gesture_binding_active(self):
+        if self._callbacks.get(MouseEvent.GESTURE_CLICK):
+            return True
+        if not self._gesture_direction_enabled:
+            return False
+        for event_type in (
+            MouseEvent.GESTURE_SWIPE_LEFT,
+            MouseEvent.GESTURE_SWIPE_RIGHT,
+            MouseEvent.GESTURE_SWIPE_UP,
+            MouseEvent.GESTURE_SWIPE_DOWN,
+        ):
+            if self._callbacks.get(event_type):
+                return True
+        return False
 
     def _negate_scroll_axis(self, cg_event, axis):
         for field_name in (
@@ -428,6 +444,23 @@ class MouseHook(BaseMouseHook):
                 pass
             mouse_event = None
             should_block = False
+            if event_type in (
+                Quartz.kCGEventOtherMouseDown,
+                Quartz.kCGEventOtherMouseUp,
+                Quartz.kCGEventOtherMouseDragged,
+            ):
+                btn = Quartz.CGEventGetIntegerValueField(
+                    cg_event, Quartz.kCGMouseEventButtonNumber
+                )
+                if (
+                    btn in _BTN_GESTURE_RAW_CANDIDATES
+                    and self._gesture_binding_active()
+                ):
+                    self._emit_debug(
+                        "Swallowing raw gesture button event "
+                        f"type={int(event_type)} btn={btn}"
+                    )
+                    return None
 
             if (
                 event_type
