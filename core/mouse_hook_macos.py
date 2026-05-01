@@ -75,6 +75,12 @@ class MouseHook(BaseMouseHook):
 
     _EVENT_TAP_HID_GRACE_MS = 30
     _MAX_EFFECTIVE_GESTURE_COOLDOWN_MS = 70
+    _HID_ABSOLUTE_VERTICAL_WEIGHT = 0.55
+
+    def _normalized_gesture_components(self, delta_x, delta_y):
+        if self._gesture_input_source == "hid_rawxy":
+            return delta_x, delta_y * self._HID_ABSOLUTE_VERTICAL_WEIGHT
+        return delta_x, delta_y
 
     def _clear_pending_event_tap_gesture(self):
         self._pending_event_tap_dx = 0.0
@@ -193,14 +199,20 @@ class MouseHook(BaseMouseHook):
         return True
 
     def _gesture_distance(self):
-        return (self._gesture_delta_x ** 2 + self._gesture_delta_y ** 2) ** 0.5
+        delta_x, delta_y = self._normalized_gesture_components(
+            self._gesture_delta_x,
+            self._gesture_delta_y,
+        )
+        return (delta_x ** 2 + delta_y ** 2) ** 0.5
 
     def _gesture_click_radius(self):
         return max(8.0, min(self._gesture_threshold * 0.5, self._gesture_deadzone))
 
     def _classify_gesture_displacement(self):
-        delta_x = self._gesture_delta_x
-        delta_y = self._gesture_delta_y
+        delta_x, delta_y = self._normalized_gesture_components(
+            self._gesture_delta_x,
+            self._gesture_delta_y,
+        )
         abs_x = abs(delta_x)
         abs_y = abs(delta_y)
         if max(abs_x, abs_y) <= self._gesture_click_radius():
@@ -216,6 +228,33 @@ class MouseHook(BaseMouseHook):
             if delta_y > 0
             else MouseEvent.GESTURE_SWIPE_UP
         )
+
+    def _detect_gesture_event(self):
+        delta_x, delta_y = self._normalized_gesture_components(
+            self._gesture_delta_x,
+            self._gesture_delta_y,
+        )
+
+        abs_x = abs(delta_x)
+        abs_y = abs(delta_y)
+        dominant = max(abs_x, abs_y)
+        if dominant < self._gesture_threshold:
+            return None
+
+        cross_limit = max(self._gesture_deadzone, dominant * 0.35)
+
+        if abs_x > abs_y:
+            if abs_y > cross_limit:
+                return None
+            if delta_x > 0:
+                return MouseEvent.GESTURE_SWIPE_RIGHT
+            return MouseEvent.GESTURE_SWIPE_LEFT
+
+        if abs_x > cross_limit:
+            return None
+        if delta_y > 0:
+            return MouseEvent.GESTURE_SWIPE_DOWN
+        return MouseEvent.GESTURE_SWIPE_UP
 
     def _accumulate_gesture_delta(self, delta_x, delta_y, source):
         if not (self._gesture_direction_enabled and self._gesture_active):
